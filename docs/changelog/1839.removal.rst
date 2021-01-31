@@ -1,0 +1,2 @@
+Drop support for ``sdistsrc`` flag because introduces a significant complexity and is barely used (5 hits on a github
+search) - by :user:`gaborbernat`.

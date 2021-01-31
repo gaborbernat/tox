@@ -2,7 +2,7 @@
 import logging
 import os
 import time
-from argparse import Action, ArgumentParser, ArgumentTypeError, Namespace
+from argparse import Action, ArgumentError, ArgumentParser, Namespace
 from concurrent.futures import CancelledError, Future, ThreadPoolExecutor, as_completed
 from pathlib import Path
 from signal import SIGINT, Handlers, signal
@@ -27,14 +27,32 @@ class SkipMissingInterpreterAction(Action):
     def __call__(
         self,
         parser: ArgumentParser,  # noqa
-        args: Namespace,
+        namespace: Namespace,
         values: Union[str, Sequence[Any], None],
         option_string: Optional[str] = None,
     ) -> None:
         value = "true" if values is None else values
         if value not in ("config", "true", "false"):
-            raise ArgumentTypeError(f"value must be 'config', 'true', or 'false' (got {repr(value)})")
-        setattr(args, self.dest, value)
+            raise ArgumentError(self, f"value must be 'config', 'true', or 'false' (got {repr(value)})")
+        setattr(namespace, self.dest, value)
+
+
+class InstallPackageAction(Action):
+    def __call__(
+        self,
+        parser: ArgumentParser,  # noqa
+        namespace: Namespace,
+        values: Union[str, Sequence[Any], None],
+        option_string: Optional[str] = None,
+    ) -> None:
+        if not values:
+            raise ArgumentError(self, f"cannot be empty")
+        path = Path(cast(str, values)).absolute()
+        if not path.exists():
+            raise ArgumentError(self, f"{path} does not exist")
+        if not path.is_file():
+            raise ArgumentError(self, f"{path} is not a file")
+        setattr(namespace, self.dest, path)
 
 
 def env_run_create_flags(parser: ArgumentParser) -> None:
@@ -70,11 +88,13 @@ def env_run_create_flags(parser: ArgumentParser) -> None:
         help="only perform the packaging activity",
         dest="package_only",
     )
+
     parser.add_argument(
         "--installpkg",
-        help="use specified package for installation into venv, instead of creating an sdist.",
+        help="use specified package for installation into venv, instead of packaging the project",
         default=None,
-        of_type=Path,
+        of_type=Optional[Path],
+        action=InstallPackageAction,
     )
     parser.add_argument(
         "--develop",
