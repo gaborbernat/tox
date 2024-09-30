@@ -40,6 +40,10 @@ class TomlSection(Section):
         return cls.SEP.join((*cls.PREFIX, cls.ENV))
 
     @classmethod
+    def core_prefix(cls) -> str:
+        return cls.SEP.join(cls.PREFIX)
+
+    @classmethod
     def package_env_base(cls) -> str:
         return cls.SEP.join((*cls.PREFIX, cls.PKG_ENV_BASE))
 
@@ -49,7 +53,11 @@ class TomlSection(Section):
 
     @property
     def keys(self) -> Iterable[str]:
-        return self.key.split(self.SEP) if self.key else []
+        key = self.key
+        keys = key.split(self.SEP) if self.key else []
+        if self.PREFIX and len(keys) >= len(self.PREFIX) and tuple(keys[: len(self.PREFIX)]) == self.PREFIX:
+            keys = keys[len(self.PREFIX) :]
+        return keys
 
 
 class TomlPyProjectSection(TomlSection):
@@ -66,19 +74,19 @@ class TomlPyProject(Source):
         if path.name != self.FILENAME or not path.exists():
             raise ValueError
         with path.open("rb") as file_handler:
-            toml_content = tomllib.load(file_handler)
+            self._content = tomllib.load(file_handler)
+        our_content: Mapping[str, Any] = self._content
+        for key in self._Section.PREFIX:
+            our_content = our_content[key]
+        self._our_content = our_content
         try:
-            content: Mapping[str, Any] = toml_content
-            for key in self._Section.PREFIX:
-                content = content[key]
-            self._content = content
             self._post_validate()
         except KeyError as exc:
             raise ValueError(path) from exc
         super().__init__(path)
 
     def _post_validate(self) -> None:
-        if "legacy_tox_ini" in self._content:
+        if "legacy_tox_ini" in self._our_content:
             msg = "legacy_tox_ini"
             raise KeyError(msg)
 
@@ -89,7 +97,7 @@ class TomlPyProject(Source):
         return self._Section(section.prefix, section.name)
 
     def get_loader(self, section: Section, override_map: OverrideMap) -> Loader[Any] | None:
-        current = self._content
+        current = self._our_content
         sec = cast(TomlSection, section)
         for key in sec.keys:
             if key in current:
@@ -103,6 +111,7 @@ class TomlPyProject(Source):
             section=section,
             overrides=override_map.get(section.key, []),
             content=current,
+            root_content=self._content,
             unused_exclude={sec.ENV, sec.RUN_ENV_BASE, sec.PKG_ENV_BASE} if section.prefix is None else set(),
         )
 
@@ -111,7 +120,7 @@ class TomlPyProject(Source):
         yield from [i.key for i in self.sections()]
 
     def sections(self) -> Iterator[Section]:
-        for env_name in self._content.get(self._Section.ENV, {}):
+        for env_name in self._our_content.get(self._Section.ENV, {}):
             yield self._Section.from_key(env_name)
 
     def get_base_sections(self, base: list[str], in_section: Section) -> Iterator[Section]:  # noqa: ARG002
