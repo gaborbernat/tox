@@ -682,3 +682,56 @@ def test_config_inspection_does_not_read_pyproject(tox_project: ToxProjectCreato
     result = project.run("c", "-e", "py", "-k", "env_name")
     result.assert_success()
     assert "[testenv:py]\nenv_name = py\n" in result.out
+
+
+@pytest.mark.parametrize(
+    ("env_names", "static_metadata"),
+    [
+        pytest.param(["a", "b"], "", id="config-set"),
+        pytest.param(["a"], "[project]\nname='demo'\nversion='1.0'\n", id="static-metadata"),
+    ],
+)
+def test_pyproject_no_build_editable_fallback_from_config(
+    tox_project: ToxProjectCreator,
+    demo_pkg_inline: Path,
+    env_names: list[str],
+    static_metadata: str,
+) -> None:
+    """package = editable from configuration must fall back like --develop, even when metadata resolves statically."""
+    files = {
+        "tox.toml": dedent(f"""\
+            env_list = {env_names!r}
+            [env_run_base]
+            package = "editable"
+        """)
+    }
+    if static_metadata:
+        files["pyproject.toml"] = (demo_pkg_inline / "pyproject.toml").read_text() + static_metadata
+    proj = tox_project(files, base=demo_pkg_inline)
+    proj.patch_execute(lambda r: 0 if "install" in r.run_id else None)
+
+    result = proj.run("r", "-e", ",".join(env_names), "--notest")
+
+    result.assert_success()
+    warning = (
+        f".pkg: package config for {', '.join(env_names)} is editable, however the build backend build does not "
+        "support PEP-660, falling back to editable-legacy - change your configuration to it"
+    )
+    assert warning in result.out.splitlines()
+
+
+def test_build_wheel_via_sdist_restores_root(tox_project: ToxProjectCreator, demo_pkg_inline: Path) -> None:
+    """The sdist-based wheel build must not leave the builder pointed at the extracted sdist tree."""
+    toml_cfg = dedent("""\
+        env_list = ["a"]
+        [env_run_base]
+        package = "sdist-wheel"
+    """)
+    proj = tox_project({"tox.toml": toml_cfg}, base=demo_pkg_inline)
+    proj.patch_execute(lambda r: 0 if "install" in r.run_id else None)
+
+    result = proj.run("r", "-e", "a", "--notest")
+
+    result.assert_success()
+    pkg = cast("pyproject_pkg.Pep517VenvPackager", result.state.envs[".pkg"])
+    assert pkg.root == pkg.conf["package_root"]
