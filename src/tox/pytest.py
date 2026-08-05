@@ -138,17 +138,20 @@ class ToxProject:
         capfd: CaptureFixture,
         monkeypatch: pytest.MonkeyPatch,
         mocker: MockerFixture,
+        *,
+        venv_redirect: bool = False,
     ) -> None:
         self.path: Path = path
         self.monkeypatch: pytest.MonkeyPatch = monkeypatch
         self.mocker = mocker
         self._capfd = capfd
+        self._venv_redirect = venv_redirect
         self._setup_files(self.path, base, files)
 
     @staticmethod
     def _setup_files(dest: Path, base: Path | None, content: dict[str, Any]) -> None:
         if base is not None:
-            shutil.copytree(str(base), str(dest), ignore=shutil.ignore_patterns(".tox"))
+            shutil.copytree(str(base), str(dest), ignore=shutil.ignore_patterns(".tox", ".venv"))
         dest.mkdir(exist_ok=True)
         for key, value in content.items():
             if not isinstance(key, str):
@@ -277,6 +280,11 @@ class ToxProject:
                 m.setenv("VIRTUALENV_SYMLINKS", "1")
                 m.setenv("VIRTUALENV_PIP", "embed")
                 m.setenv("VIRTUALENV_SETUPTOOLS", "embed")
+                if not self._venv_redirect:  # a --root pointing into the source tree would get a .venv written there
+                    # the core section answers to "tox." in ini files and to no prefix in toml ones
+                    disable = ["venv_redirect=false", "tox.venv_redirect=false"]
+                    overrides = [*disable, *filter(None, [os.environ.get("TOX_OVERRIDE")])]
+                    m.setenv("TOX_OVERRIDE", ";".join(overrides))
                 try:
                     tox_run(args)
                 except SystemExit as exception:
@@ -407,6 +415,8 @@ class ToxProjectCreator(Protocol):
         files: dict[str, Any],
         base: Path | None = None,
         prj_path: Path | None = None,
+        *,
+        venv_redirect: bool = False,
     ) -> ToxProject: ...
 
 
@@ -417,9 +427,13 @@ def init_fixture(
     monkeypatch: pytest.MonkeyPatch,
     mocker: MockerFixture,
 ) -> ToxProjectCreator:
-    def _init(files: dict[str, Any], base: Path | None = None, prj_path: Path | None = None) -> ToxProject:
-        """Create tox projects."""
-        return ToxProject(files, base, prj_path or tmp_path / "p", capfd, monkeypatch, mocker)
+    def _init(
+        files: dict[str, Any], base: Path | None = None, prj_path: Path | None = None, *, venv_redirect: bool = False
+    ) -> ToxProject:
+        """Create tox projects; the :PEP:`832` ``.venv`` redirect stays off unless *venv_redirect* is set."""
+        return ToxProject(
+            files, base, prj_path or tmp_path / "p", capfd, monkeypatch, mocker, venv_redirect=venv_redirect
+        )
 
     return _init
 
