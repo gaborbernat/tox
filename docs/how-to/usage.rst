@@ -1238,6 +1238,35 @@ To invert the exit code (fail if the command returns 0, succeed otherwise), use 
              ! python -c 'import sys; sys.exit(1)'
              python --version
 
+*****************************
+ Clean up after an interrupt
+*****************************
+
+Pressing :kbd:`Ctrl-C` stops the environment at once, leaving a started container running and a fixture database in
+place. Set :ref:`interrupt_post_commands` to run :ref:`commands_post` before tox exits:
+
+.. tab:: TOML
+
+    .. code-block:: toml
+
+         [env.integration]
+         interrupt_post_commands = true
+         commands_pre = [["docker", "compose", "up", "--detach"]]
+         commands = [["pytest", "tests/integration"]]
+         commands_post = [["docker", "compose", "down"]]
+
+.. tab:: INI (deprecated)
+
+    .. code-block:: ini
+
+         [testenv:integration]
+         interrupt_post_commands = true
+         commands_pre = docker compose up --detach
+         commands = pytest tests/integration
+         commands_post = docker compose down
+
+Press :kbd:`Ctrl-C` a second time to give up on the teardown as well.
+
 **********************
  Retry flaky commands
 **********************
