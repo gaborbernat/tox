@@ -71,7 +71,7 @@ generative section names (see below).
 **Conditional factors** -- Both INI and TOML support filtering by factor name. A factor is any dash-separated segment in
 the environment name (e.g. ``py313-django50`` has factors ``py313`` and ``django50``). Additionally, the current
 platform (``sys.platform`` value like ``linux``, ``darwin``, ``win32``) is automatically available as an implicit
-factor.
+factor. See :ref:`factors` for the naming rules and for selecting environments by factor.
 
 .. tab:: TOML
 
@@ -2401,6 +2401,79 @@ separators:
 
 Multiple dots can be escaped in the same key: ``-x 'some\.dotted\.name.key=val'``. A backslash not followed by a dot
 passes through literally.
+
+.. _factors:
+
+*********
+ Factors
+*********
+
+An environment name is a list of factors joined by ``-``. ``py313-django50-cov`` has the factors ``py313``, ``django50``
+and ``cov``. One environment section then covers a whole matrix. Combinations of factors decide which environments
+exist, and each setting picks a value per factor.
+
+Naming
+======
+
+tox accepts letters, digits, underscores and dots in a factor, so ``3.14`` and ``django_5`` are both valid. ``-``
+separates factors and ``,`` separates environment names, so a factor contains neither:
+
+.. code-block:: ini
+
+    [tox]
+    env_list = 3.14-django50, 3.14-django42, lint
+
+tox compares factors as plain text, so ``*`` and ``?`` in a name match nothing.
+
+Implicit factors
+================
+
+tox adds two factors to every condition that no environment name contains:
+
+- the platform, which :data:`sys.platform` reports as ``linux``, ``darwin`` or ``win32``
+- the machine architecture, such as ``arm64`` or ``x86_64``, unless the environment name already carries one
+
+.. code-block:: ini
+
+    [testenv]
+    deps =
+        pytest
+        linux: pytest-xvfb
+
+Neither is part of an environment name, so neither can select an environment. ``tox run -f darwin`` matches nothing.
+
+Where factors apply
+===================
+
+A condition applies a setting only in environments containing a factor. INI writes it as a prefix, TOML as a ``replace =
+"if"`` table; :ref:`conditional-settings` and :ref:`conditional-value-reference` cover the syntax of each.
+
+Generation creates environments from factor combinations. INI expands braces in ``env_list`` and in section names, TOML
+composes structured dicts; :ref:`generative-environment-list` covers both.
+
+Selecting environments by factor
+================================
+
+``-f`` runs the environments whose name contains the factors you give. Given ``env_list = 3.14-django50, 3.14-django42,
+lint``:
+
+.. code-block:: console
+
+    $ tox run -f django50          # 3.14-django50
+    $ tox run -f 3.14 django50     # 3.14-django50, since both factors must be present
+    $ tox run -f django50 -f lint  # 3.14-django50 and lint, since either group will do
+
+Several factors after one ``-f`` require all of them; repeating ``-f`` accepts any of the groups. Use ``-e`` to name
+environments outright instead.
+
+Pitfalls
+========
+
+A condition needs whitespace after its colon. ``django50: pytest`` is a condition. ``django50:pytest`` is an ordinary
+value holding a colon, and tox installs a dependency by that name.
+
+In INI, tox also treats a factor named in a condition as an environment name. A ``[testenv]`` with ``docs: sphinx``
+answers to ``tox run -e docs`` even when ``docs`` appears in no ``env_list``.
 
 ***********
  TOML only
