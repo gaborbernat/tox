@@ -77,8 +77,13 @@ intersphinx_mapping = {
     "packaging": ("https://packaging.pypa.io/en/latest", None),
 }
 nitpicky = True
-# a private stdlib class we cannot document, the stdlib itself has no public name for it
-nitpick_ignore = [("py:class", "argparse._ArgumentGroup")]
+# These stdlib members are absent from Python's intersphinx inventory.
+nitpick_ignore = [
+    ("py:class", "argparse._ArgumentGroup"),
+    ("py:meth", "argparse._ActionsContainer.add_argument_group"),
+    ("py:meth", "argparse._ActionsContainer.add_argument"),
+    ("py:attr", "logging.Handler.name"),
+]
 linkcheck_workers = 10
 linkcheck_ignore = [
     re.escape(i)
