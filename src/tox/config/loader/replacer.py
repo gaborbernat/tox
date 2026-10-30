@@ -298,7 +298,15 @@ class Replacer:
         return f"{{{ARG_DELIMITER.join(args)}}}"
 
     def join(self, value: MatchArg) -> str:
-        return "".join(self(value))
+        parts: Final[Sequence[str]] = self(value)
+        spans: Final[list[tuple[int, int]]] = []
+        offset = 0
+        for part in parts:
+            if isinstance(part, HostText):
+                spans.extend((offset + start, offset + end) for start, end in part.spans)
+            offset += len(part)
+        joined: Final[str] = "".join(parts)
+        return HostText(joined, spans=tuple(spans)) if spans else joined
 
     def expand(self, value: str | MatchExpression) -> str:
         if self.depth > MAX_REPLACE_DEPTH:
@@ -313,7 +321,7 @@ class Replacer:
         flattened_args: Final[list[str]] = [self._flatten_arg(arg) for arg in value.expr]
         replace_value: Final[str | ConfigDefault | None] = self._replace_args(flattened_args)
         if replace_value is not None:
-            return str(replace_value), True
+            return replace_value if isinstance(replace_value, str) else str(replace_value), True
         # Preserve unmatched braces for factor expressions such as {py39,py38}-{,dep}.
         return f"{REPLACE_START}{ARG_DELIMITER.join(flattened_args)}{REPLACE_END}", False
 
@@ -330,9 +338,13 @@ class Replacer:
             and any(isinstance(match, MatchExpression) for match in find_replace_expr(str(replace_value)))
         ):
             try:
-                return self._nested(conf_args).expand(str(replace_value))
+                expanded: Final[str] = self._nested(conf_args).expand(str(replace_value))
             except MatchRecursionError as error:
                 LOGGER.warning(str(error))
+            else:
+                if isinstance(replace_value, HostText):
+                    return replace_value if expanded == replace_value else HostText(expanded)
+                return expanded
         return str(replace_value) if isinstance(replace_value, ConfigDefault) else replace_value
 
     def _nested(self, conf_args: ConfigLoadArgs) -> Self:
@@ -560,7 +572,7 @@ class RequirementLinesReplacer(Replacer):
     ) -> str | ConfigDefault | None:
         value: Final[str | ConfigDefault | None] = super()._resolve_replace(of_type, args, flattened_args, conf_args)
         # pip's ${NAME} syntax belongs to the configuration, a host variable's value reaches pip as written
-        return HostText(self._callbacks.protect_host_value(value)) if isinstance(value, HostText) else value
+        return HostText(value.protect(self._callbacks.protect_host_value)) if isinstance(value, HostText) else value
 
     @override
     def _flatten_arg(self, value: MatchArg) -> str:
@@ -614,7 +626,22 @@ class RequirementLinesReplacer(Replacer):
 
 
 class HostText(RawText):
-    __slots__ = ()
+    __slots__ = ("spans",)
+    spans: tuple[tuple[int, int], ...]
+
+    def __new__(cls, value: str, *, spans: tuple[tuple[int, int], ...] | None = None) -> Self:
+        result: Final[Self] = super().__new__(cls, value)
+        result.spans = ((0, len(value)),) if spans is None else spans
+        return result
+
+    def protect(self, protector: _HostValueProtector) -> str:
+        parts: Final[list[str]] = []
+        offset = 0
+        for start, end in self.spans:
+            parts.extend((self[offset:start], protector(self[start:end])))
+            offset = end
+        parts.append(self[offset:])
+        return "".join(parts)
 
 
 class _RequirementOptionsValidator(Protocol):

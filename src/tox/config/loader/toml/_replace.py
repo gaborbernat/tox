@@ -178,7 +178,7 @@ class Unroll:
         # adjacent entries of the same value tree and spuriously trip the circular check (#2869)
         result: Final[str] = replace_env(self.conf, [name, validate(default, str)], self.args.copy())
         if self.requirement_entries and isinstance(result, HostText):
-            return protect_env_variables(result)
+            return result.protect(protect_env_variables)
         return result
 
     def _replace_glob(self, value: dict[str, TomlTypes], depth: int, *, skip_str: bool) -> TomlTypes:
